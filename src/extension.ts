@@ -44,7 +44,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // command for installing apk file
     const installAPkFileCommand = vscode.commands.registerCommand(
         "apklab.installApkFile",
-        (uri: vscode.Uri) => adb.installAPK(uri.fsPath),
+        (uri: vscode.Uri) => UI.installAPK(uri.fsPath),
     );
 
     // command for rebuilding and installing the apk
@@ -52,14 +52,17 @@ export function activate(context: vscode.ExtensionContext): void {
         "apklab.rebuildAndInstallApkFile",
         async (uri: vscode.Uri) => {
             await checkAndInstallTools();
-            await UI.rebuildAPK(uri.fsPath);
+            const { built, adbArgs } = await UI.rebuildAPK(uri.fsPath, true);
+            if (!built) {
+                return;
+            }
             const parentPath = path.parse(uri.fsPath).dir;
             const apkPath = path.join(
                 parentPath,
                 DIST_DIR,
                 apktool.getApkNameFromApkToolYaml(uri.fsPath),
             );
-            await adb.installAPK(apkPath);
+            await adb.installAPK(apkPath, adbArgs);
         },
     );
 

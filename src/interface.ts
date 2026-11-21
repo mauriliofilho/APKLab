@@ -8,6 +8,7 @@ import {
 } from "./data/constants";
 import { quickPickUtil } from "./utils/quick-picks";
 import { Quark } from "./tools/quark-engine";
+import { adb } from "./tools/adb";
 import { apktool } from "./tools/apktool";
 import { git } from "./tools/git";
 import { jadx } from "./tools/jadx";
@@ -140,17 +141,78 @@ export namespace UI {
     /**
      * Show a QuickPick with extra args and build the APK.
      * @param apktoolYmlPath path of the `apktool.yml` file.
+     * @param includeInstallOptions whether to include ADB install options in the same QuickPick.
+     * @returns build status and any selected ADB install arguments.
      */
-    export async function rebuildAPK(apktoolYmlPath: string): Promise<void> {
-        const quickPickItems = await showArgsQuickPick(
-            quickPickUtil.getQuickPickItems("rebuildQuickPickItems"),
-            "Additional Apktool arguments",
+    export async function rebuildAPK(
+        apktoolYmlPath: string,
+        includeInstallOptions = false,
+    ): Promise<{ built: boolean; adbArgs: string[] }> {
+        const rebuildItems = quickPickUtil.getQuickPickItems(
+            "rebuildQuickPickItems",
         );
-        const args = quickPickItems
-            ? quickPickItems.map<string>((item) => item.label)
-            : undefined;
-        if (args) {
-            await apktool.rebuildAPK(apktoolYmlPath, args);
+        let items = rebuildItems;
+        if (includeInstallOptions) {
+            const installAsPlayStore = workspace
+                .getConfiguration(extensionConfigName)
+                .get<boolean>("installAsPlayStore", false);
+            const installItems = quickPickUtil
+                .getQuickPickItems("installQuickPickItems")
+                .map((item) => ({
+                    ...item,
+                    picked:
+                        item.label === "-i com.android.vending"
+                            ? installAsPlayStore
+                            : item.picked,
+                }));
+            items = [...rebuildItems, ...installItems];
         }
+        const quickPickItems = await showArgsQuickPick(
+            items,
+            includeInstallOptions
+                ? "Additional Apktool & ADB arguments"
+                : "Additional Apktool arguments",
+        );
+        if (!quickPickItems) {
+            return { built: false, adbArgs: [] };
+        }
+        const apktoolArgs = quickPickItems
+            .filter((item) => item.description !== "adb")
+            .map<string>((item) => item.label);
+        const adbArgs = quickPickItems
+            .filter((item) => item.description === "adb")
+            .flatMap((item) => item.label.split(/\s+/).filter(Boolean));
+        await apktool.rebuildAPK(apktoolYmlPath, apktoolArgs);
+        return { built: true, adbArgs };
+    }
+
+    /**
+     * Show a QuickPick with extra ADB install args and install the APK.
+     * @param apkFilePath absolute path of the APK file.
+     */
+    export async function installAPK(apkFilePath: string): Promise<void> {
+        const installAsPlayStore = workspace
+            .getConfiguration(extensionConfigName)
+            .get<boolean>("installAsPlayStore", false);
+        const items = quickPickUtil
+            .getQuickPickItems("installQuickPickItems")
+            .map((item) => ({
+                ...item,
+                picked:
+                    item.label === "-i com.android.vending"
+                        ? installAsPlayStore
+                        : item.picked,
+            }));
+        const quickPickItems = await showArgsQuickPick(
+            items,
+            "Additional ADB install arguments",
+        );
+        if (!quickPickItems) {
+            return;
+        }
+        const extraArgs = quickPickItems.flatMap((item) =>
+            item.label.split(/\s+/).filter(Boolean),
+        );
+        await adb.installAPK(apkFilePath, extraArgs);
     }
 }
